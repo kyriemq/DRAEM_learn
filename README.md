@@ -20,6 +20,9 @@ to download the MVTec and the DTD datasets to the **datasets** folder in the pro
 ```
 ./scripts/download_dataset.sh
 ```
+## Requirements
+Its `requirements.txt` file is a mixed file of Conda and Pip, and it's a bit troublesome to install. For the environment, having `torch`, `opencv-python==4.5.3.56`, `imgaug==0.4.0`, and `sklearn==0.0` is almost sufficient. If there are still some missing components later, you just need to install one or two more libraries.  
+
 
 
 ## Training
@@ -33,7 +36,7 @@ Example:
 python train_DRAEM.py --gpu_id 0 --obj_id -1 --lr 0.0001 --bs 8 --epochs 700 --data_path ./datasets/mvtec/ --anomaly_source_path ./datasets/dtd/images/ --checkpoint_path ./checkpoints/ --log_path ./logs/
 ```
 
-The conda environement used in the project is decsribed in **requirements.txt**.
+
 
 ## Pretrained models
 Pretrained DRAEM models for each class of the MVTec anomaly detection dataset are available [here](https://drive.google.com/uc?id=1eOE8wXNihjsiDvDANHFbg_mQkLesDrs1).
