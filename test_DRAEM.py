@@ -6,8 +6,10 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 from model_unet import ReconstructiveSubNetwork, DiscriminativeSubNetwork
 import os
+from skimage.measure import label
+from scipy.ndimage import binary_dilation
 
-def write_results_to_file(run_name, image_auc, pixel_auc, image_ap, pixel_ap):
+def write_results_to_file(run_name, image_auc, pixel_auc, image_ap, pixel_ap, pixel_pro):
     if not os.path.exists('./outputs/'):
         os.makedirs('./outputs/')
 
@@ -31,17 +33,42 @@ def write_results_to_file(run_name, image_auc, pixel_auc, image_ap, pixel_ap):
         fin_str += "," + str(np.round(i, 3))
     fin_str += ","+str(np.round(np.mean(pixel_ap), 3))
     fin_str += "\n"
+    fin_str += "pixel_pro,"+run_name
+    for i in pixel_pro:
+        fin_str += "," + str(np.round(i, 3))
+    fin_str += ","+str(np.round(np.mean(pixel_pro), 3))
+    fin_str += "\n"
     fin_str += "--------------------------\n"
 
     with open("./outputs/results.txt",'a+') as file:
         file.write(fin_str)
 
+def calculate_pro(mask, score_map, num_thresholds=100):
+    max_step = 255
+    thresholds = np.linspace(0, 1, num_thresholds)
+    pros = []
+    masks = label(mask)
+    for th in thresholds:
+        binary_score_map = score_map > th
+        regions = np.unique(masks)
+        overlaps = []
+        for region in regions[1:]:
+            region_mask = masks == region
+            region_score_map = binary_score_map & region_mask
+            overlap = np.sum(region_score_map) / np.sum(region_mask)
+            overlaps.append(overlap)
+        if overlaps:
+            pros.append(np.mean(overlaps))
+        else:
+            pros.append(0)
+    return np.mean(pros)
 
 def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
     obj_ap_pixel_list = []
     obj_auroc_pixel_list = []
     obj_ap_image_list = []
     obj_auroc_image_list = []
+    obj_pro_pixel_list = []
     for obj_name in obj_names:
         img_dim = 256
         run_name = base_model_name+"_"+obj_name+'_'
@@ -74,6 +101,8 @@ def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
         cnt_display = 0
         display_indices = np.random.randint(len(dataloader), size=(16,))
 
+        all_gt_masks = []
+        all_pred_scores = []
 
         for i_batch, sample_batched in enumerate(dataloader):
 
@@ -90,7 +119,6 @@ def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
             out_mask = model_seg(joined_in)
             out_mask_sm = torch.softmax(out_mask, dim=1)
 
-
             if i_batch in display_indices:
                 t_mask = out_mask_sm[:, 1:, :, :]
                 display_images[cnt_display] = gray_rec[0]
@@ -98,7 +126,6 @@ def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
                 display_out_masks[cnt_display] = t_mask[0]
                 display_in_masks[cnt_display] = true_mask[0]
                 cnt_display += 1
-
 
             out_mask_cv = out_mask_sm[0 ,1 ,: ,:].detach().cpu().numpy()
 
@@ -114,6 +141,9 @@ def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
             total_gt_pixel_scores[mask_cnt * img_dim * img_dim:(mask_cnt + 1) * img_dim * img_dim] = flat_true_mask
             mask_cnt += 1
 
+            all_gt_masks.append(true_mask_cv.squeeze())
+            all_pred_scores.append(out_mask_cv)
+
         anomaly_score_prediction = np.array(anomaly_score_prediction)
         anomaly_score_gt = np.array(anomaly_score_gt)
         auroc = roc_auc_score(anomaly_score_gt, anomaly_score_prediction)
@@ -124,15 +154,23 @@ def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
         total_pixel_scores = total_pixel_scores[:img_dim * img_dim * mask_cnt]
         auroc_pixel = roc_auc_score(total_gt_pixel_scores, total_pixel_scores)
         ap_pixel = average_precision_score(total_gt_pixel_scores, total_pixel_scores)
+
+        all_gt_masks = np.array(all_gt_masks)
+        all_pred_scores = np.array(all_pred_scores)
+        pro_pixel = calculate_pro(all_gt_masks, all_pred_scores)
+
         obj_ap_pixel_list.append(ap_pixel)
         obj_auroc_pixel_list.append(auroc_pixel)
         obj_auroc_image_list.append(auroc)
         obj_ap_image_list.append(ap)
+        obj_pro_pixel_list.append(pro_pixel)
+
         print(obj_name)
         print("AUC Image:  " +str(auroc))
         print("AP Image:  " +str(ap))
         print("AUC Pixel:  " +str(auroc_pixel))
         print("AP Pixel:  " +str(ap_pixel))
+        print("PRO Pixel:  " +str(pro_pixel))
         print("==============================")
 
     print(run_name)
@@ -140,8 +178,9 @@ def test(obj_names, mvtec_path, checkpoint_path, base_model_name):
     print("AP Image mean:  " + str(np.mean(obj_ap_image_list)))
     print("AUC Pixel mean:  " + str(np.mean(obj_auroc_pixel_list)))
     print("AP Pixel mean:  " + str(np.mean(obj_ap_pixel_list)))
+    print("PRO Pixel mean:  " + str(np.mean(obj_pro_pixel_list)))
 
-    write_results_to_file(run_name, obj_auroc_image_list, obj_auroc_pixel_list, obj_ap_image_list, obj_ap_pixel_list)
+    write_results_to_file(run_name, obj_auroc_image_list, obj_auroc_pixel_list, obj_ap_image_list, obj_ap_pixel_list, obj_pro_pixel_list)
 
 if __name__=="__main__":
     import argparse
